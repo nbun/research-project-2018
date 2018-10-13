@@ -44,7 +44,7 @@
 
 % Eine kleine Hilfe für offene Lücken
 \newcommand{\todo}[1]{\marginpar{\textbf{TODO:} #1}}
-\newcommand{\coqinline}[1]{\mintinline{coq}{#1}}
+\newcommand{\cinline}[1]{\mintinline{haskell}{#1}}
 
 \begin{document}
 
@@ -53,9 +53,9 @@
 \begin{titlepage}
 	\vspace*{3cm}
 	\centering
-	{\huge\bfseries A Type System for Curry in Locally Nameless Representation \par}
+	{\huge\bfseries Synthesizing Set Functions: Implementation \par}
 	\vspace{1cm}
-	\textbf{Seminar Paper} \par 
+	\textbf{Research Project Report} \par 
 	\vspace{6cm}
 	\textbf{Niels Bunkenburg} \par
 	Programming Languages and Compiler Construction \par
@@ -64,10 +64,10 @@
 	\vfill
 	Advised by\par
 	Prof. Dr. Michael Hanus \par
-	M. Sc. Sandra Dylus
+	M. Sc. Finn Teegen
 	\vfill
 	% Randloses Drucken nicht möglich...
-	%\tikz[remember picture,overlay] \node[opacity=0.3,inner sep=0pt] at (9.5,-1.5){\includegraphics{images/cau-siegel-1400.png}};
+	\tikz[remember picture,overlay] \node[opacity=0.3,inner sep=0pt] at (9.5,-1.5){\includegraphics{images/cau-siegel-1400.png}};
 	{\large \today\par}
 \end{titlepage}
 \begin{comment}
@@ -99,546 +99,52 @@ Prüfungsbehörde vorgelegt und auch noch nicht veröffentlicht.
 \pagenumbering{arabic} % arabische Seitenzahlen
 
 \chapter{Introduction}
-Variables are an elementary concept of programming languages. In the context of functional languages, variables occur anywhere from declarations to type expressions. One important aspect of a variable is its name: long or short, descriptive or vacuous, with numbers or without. The nearly unlimited choice of names can be useful to increase the readability of code or make it more comprehensive, but this is only true from the perspective of a human reader. Computers do not, at least not yet, understand or benefit from descriptive variables names. Therefore, it seems logical to represent variables in a way that does not entail problems like name conflicts when reasoning about programs formally.
-\par
-In this paper, we will explore the possibilities of alternative variable representations in Coq and implement a type system without explicit variable names for the functional logic programming language Curry. The next chapter introduces the idea of a nameless variable representation as well as the languages Coq and Curry, followed by the implementation of a type system that utilizes the concept of namelessness. To complete the chapter, two example proofs that demonstrate the usage of the type system and its utility functions are shown. Finally, the concluding chapter outlines the results of this paper and discusses the feasibility of a nameless representation.
+When presented with a choice, we usually get to experience only one outcome of it. Whether the decision is about what to eat for lunch, where to live or what career to pursue, we have to decide and can only wonder what would have happened if we picked differently. Would not it be nice if we could collect all outcomes of a decision and pick the most appealing one?
 
-\chapter{Preliminaries}
-\label{preliminiaries}
-This chapter introduces the methods and languages that we will use later. We begin with an alternative way to represent variables and its application in programming languages.
-	\section{De Bruijn Indices}
-	\label{motivations}
-	The de Bruijn index is a notation created by \citet{DeBruijn} in search of a term representation for the lambda calculus that is "easy to handle in metalingual discussion" and "easy for the computer and for the computer programmer". When working with $\lambda$-terms, two main obstacles may arise in a traditional notation.
-	\begin{enumerate}[label={(\arabic*)}]
-		\item Determining if two terms are equal can be dependent on the names of bound variables. While, in a mathematical sense , $\lambda x. \ x$ and $\lambda y. \ y$ are equivalent because they always yield the same output for the same input, they are fundamentally different when compared structurally and require renaming, known as $\alpha$-conversion.
-		\item Replacing terms bears the risk of name conflicts, for example when replacing the free variable $y$ with a free variable $x$ in the expression $\lambda x . \ x \ y$. Without renaming, $x$ would be bound unintentionally by the abstraction.
-	\end{enumerate}
-	The above examples show that variable names are useful for a human readable notation, at the cost of more complex operations. De Bruijn indices aim to solve (1) by using a different way to describe the binding of a variable to its abstraction. In the de Bruijn notation, names of bound variables are replaced by natural numbers that represent the distance from a variable to its abstraction. In this context, distance means the number of abstractions that are "between" the variable and abstraction. For example, the term $\lambda x. \ x$ is translated to $\lambda. \ 0$ and $\lambda x.\ \lambda y. \ x \ y$ to $\lambda. \ \lambda. \ 1 \ 0$. The variable name $x$ is omitted because, in the de Bruijn notation, abstractions do not denote the variables they bind. Instead, the variable's number indicates the abstraction it is bound to. In the last example, the number $1$ that replaces $x$ means that there is one abstraction between the variable and abstraction. Since $y$ is directly in the scope of its abstraction, the corresponding de Bruijn index is $0$. \autoref{lambdagraph} shows an example where bound variables are colored the same as the corresponding binder.
-	
-	\begin{figure}[H]
-		\begin{alignat*}{4}
-		&\lambda x. \ &&\lambda y. \ &&\lambda z. \ &&x \ z \ (y \ z)\\ 
-		&\textcolor{red}{\lambda.} \ &&\textcolor{blue}{\lambda.}  &&\textcolor{green}{\lambda.}  &&\textcolor{red}{2} \ \textcolor{green}{0} \ (\textcolor{blue}{1} \  \textcolor{green}{0})
-		\end{alignat*}
-	\caption{Graphical illustration of a $\lambda$-term in named and nameless notation}
-	\label{lambdagraph}
-	\end{figure}
-	
-	\noindent
-	While de Bruijn indices enable a unique notation for $\alpha$-equivalent terms, de Bruijn's proposed method to represent free variables \footnote{De Bruijn represents free variables with natural numbers that index an infinite list of variable names. The variable's values are calculated by considering the reference depth (the number of abstractions surrounding the variable) and the position of the name in the variable list.} does not solve the index renaming problem (2) because bound and free variables still share the same domain. Therefore, bound and free variables need to be distinguished syntactically, as shown in the next section.
-	
-	\section{The Locally Nameless Representation}
-	  The idea of syntactically distinguishable free and bound variables is implemented in the \textit{locally named representation} by \citet{McKinna:1993:PTS:645891.756642}. As the name suggests, the notation still uses names to represent all variables, which we already ruled out for bound variables in order to solve (1), but the representation of free variables as syntactically independent, named constructs solves the problem of overlapping name spaces while keeping some human readability.
-	  The solution to both (1) and (2) is the combination of the locally named representation and de Bruijn indices, called \textit{locally nameless representation}, or in short LNR. Introduced by \citet{Chargueraud}, the LNR allows us to represent terms without the need to do $\alpha$-conversion or to rename variables when replacing sub-terms.
-	\begin{figure}[H]
-		\begin{align*}
-			t := \text{bvar} \ i \ | \ \text{fvar} \ x \ | \ \text{abs} \ t \ | \ \text{app} \ t \ t
-		\end{align*}
-		\caption{Syntax of the locally nameless representation for $\lambda$-terms}
-		\label{pre:lnrsyntax}
-	\end{figure}
-	\noindent
-	In the LNR, bound variables are represented namelessly by de Bruijn indices while free variables are named. Names are also called \textit{atoms} and can be implemented using any data type that supports decidable equality and that, ideally, has an infinite size to allow picking \textit{fresh} atoms for any given set. One disadvantage of the syntactical distinction between bound and free variables is that the LNR allows terms that do not have an equivalent $\lambda$-representation, for example \coqinline{t = abs (bvar 42)}. Therefore, the LNR requires a function that checks terms for \textit{local closure}, as introduced below.
-	\par
-	There are many operations to manipulate locally nameless terms, not all of which are relevant to this paper. In the following section, the most important operations are introduced using the example of $\lambda$-terms.
-	\paragraph{Variable Opening} When working with locally nameless terms, it is essential to be able to analyze the \textit{body} of an abstraction, that is, the term t in $abs \ t$. If we take $t$ without the abstraction, the de Bruijn indices that were bound by the missing abstraction before are now \textit{dangling}, which would leave us with an invalid term. \textit{Opening} an abstraction means to apply the \textit{variable opening} operation to $t$ and $x$, written $t^x$, where $x$ is an atom that must not occur in $t$. The result is a term with all occurrences of variables that were bound to the abstraction replaced by the free variable $x$. Limiting the opening operation to free variables is not strictly necessary, since a consequent substitution of the variable with a term $t'$ would yield the same result as opening the term with $t'$ directly. In the latter case, checking if $t'$ is locally closed before opening the term is important because unbound indices could otherwise be accidentally bound.
-	\begin{figure}[H]
-		\begin{alignat*}{2}
-		&\{k \rightarrow x\} (\text{bvar} \ i) &&\equiv \text{if} \ (i = k) \ \text{then} \ (\text{fvar} \ x) \ \text{else} \ (\text{bvar} \ i) \\
-		&\{k \rightarrow x\} (\text{fvar} \ y) &&\equiv \text{fvar} \ y \\
-		&\{k \rightarrow x\} (\text{app} \ t_1 \ t_2) &&\equiv \text{app} (\{k \rightarrow x \} t_1)(\{k \rightarrow x \} t_2) \\
-		&\{k \rightarrow x\} (\text{abs} \ t) &&\equiv \text{abs} (\{(k + 1) \rightarrow x \}t)
-		\end{alignat*}
-		\caption{Opening operation for LNR $\lambda$-terms}
-		\label{LNRopening}
-	\end{figure} \noindent
-	The implementation of opening shown in \autoref{LNRopening} assumes that the function is called initially with index zero. It recursively descends the term structure and checks every bound variable for the index to be replaced with the free variable. When it reaches an application $\text{app} \ t_1 \ t_2$, the variable opening operation is applied to both $t_1$ and $t_2$. The interesting part happens when the term is an abstraction: Since variables that reference the opened abstraction have an incremented index within a nested abstraction, we also need to increment the index of the to be replaced variable when applying the opening operation to the body of the abstraction.
-	\paragraph{Substitution}
-	Replacing all occurrences of a free variable $x$ in a term $t$ with another term $u$ is called substitution, written $[x \rightarrow u]t$. The operation works similarly to variable opening, with the difference that free variables, instead of bound variables, are checked for equality with $x$ and that there is no index to keep track of. The term $u$ needs to be locally closed to prevent unwanted bindings.
-	\paragraph{Local closure}
-	Determining if a term is locally-closed is important since the LNR allows invalid expressions that we do not want to include when reasoning about terms in general. The idea behind the predicate $\text{lc}$ is to open abstractions whenever one is reached with free variables. There is no rule for bound variables, so if one occurs, the term cannot be locally closed. If every variable is bound to an abstraction, opening every abstraction should replace all occurrences of bound variables.
-	\begin{figure}[H]
-		\begin{center}
-			\begin{minipage}[t]{.3 \linewidth}
-				\infer[]{\text{lc}(\text{fvar}\ x)}{}
-			\end{minipage}
-			\begin{minipage}[t]{.3 \linewidth}
-				\infer[]{\text{lc}(\text{app}\ t_1 \ t_2)}{\text{lc} \ t_1 \quad \text{lc} \ t_2}
-			\end{minipage}
-			\begin{minipage}[t]{.3 \linewidth}
-				\infer[]{\text{lc}(\text{abs}\ t)}{\forall x \notin L, \ \text{lc} \ (t^x)}
-			\end{minipage}
-		\end{center}
-	\caption{Local closure of LNR $\lambda$-terms}
-	\label{lc}
-	\end{figure} \noindent
-	The inference system, that is, rules that state premises above and a conclusion below the line, uses \textit{cofinite quantification} to state that an abstraction $\text{abs} \ t$ is locally-closed if, for any atom $x$ not in a finite set of atoms $L$, $t^x$ is locally-closed. Why do we need cofinite quantification? Considering the proposition "$\text{abs} \ t$ is locally-closed" as a goal, we would, ideally, only want to show that the statement holds for one particular $x$. On the other hand, if we have the same proposition as a premise and want to prove something else, it would be much better for the statement to hold for every possible $x$. Cofinite quantification is a compromise that can be used in both situations, since $L$ can be adapted depending on the current context.
+While it is hard to imagine that we someday might be able to pick our lunch based on the recommendation of alternate reality versions of ourselves, the concept is far more tangible in the context of functional logic programming languages. A nondeterministic calculation like \cinline{0?1} can yield several values, \cinline{0} and \cinline{1} in this case. Maybe we would like to count the results or check if a specific outcome is possible? A nondeterministic expression in Curry does not "look" different than a deterministic one, at least in regard to their types. Based on this, checking if \cinline{0?1} can be evaluated to a certain result yields a naive implementation.
+\begin{minted}{haskell}
+isOne :: Int -> Bool
+isOne x = x == 1
 
-	\section{Coq}
-	Coq is an interactive proof assistant created by \cite{CoqManualV8} that we will use to reason about type systems in the next chapter. This short overview is based on \textit{Software Foundations} by \citet{Pierce:SF} and introduces the most relevant aspects of Coq and the libraries used, \textit{The Penn Locally Nameless Metatheory Library }\footnote{https://github.com/plclub/metalib} called \texttt{Metalib}, in particular.
-	
-	\paragraph{Data Types and Functions}
-	Data types in Coq are defined inductively by listing the constructors and the corresponding full types. The following example shows the locally nameless representation of $\lambda$-terms.
-	\begin{coqcode}
-Inductive exp : Set :=
-| bvar : nat  -> exp
-| fvar : atom -> exp
-| abs  : exp  -> exp
-| app  : exp  -> exp -> exp.
-	\end{coqcode}
-    Bound variables have a \coqinline{nat} argument which arises from the locally nameless representation, while free variables are represented by an \coqinline{atom} argument. \coqinline{Metalib} defines \coqinline{atom} as an abstract data type that offers a decidable equality relation and a mechanism to pick fresh atoms from a list.
-    \par
-    Coq also offers pattern matching and recursive functions. The latter need to be indicated by the keyword \coqinline{Fixpoint}, while non-recursive functions are defined using \coqinline{Definition}. The function \coqinline{fv} computes the set of free variables in an expression.
-	\begin{coqcode}
-Fixpoint fv (e : exp) {struct e} : atoms :=
-match e with
-| bvar i => {}
-| fvar x => singleton x
-| abs e1 => fv e1
-| app e1 e2 => union (fv e1) (fv e2)
-end.
-	\end{coqcode}
-	The return type \coqinline{atoms} is a set of atoms that can be constructed by using \coqinline{singleton} to create a set with exactly one element or by uniting two sets with \coqinline{union}. \coqinline{{}} represents the empty set.
-	
-	\paragraph{Inductively Defined Propositions}
-	Propositions describe properties of data, for example, the local closure of an expression. Inductively defined propositions correspond to inference systems where every inference rule is represented by a rule in the inductive definition.
-	\begin{coqcode}
-Inductive lc : exp -> Prop :=
-| lc_var : forall (x:atom), lc (fvar x)
-| lc_abs : forall (L : atoms) e,
-    (forall x : atom, 
-       x `notin` L ->
-       lc (open e x)) ->
-    lc (abs e)
-| lc_app : forall e1 e2,
-    lc_c e1 -> lc_c e2 ->
-    lc_c (app e1 e2).
-	\end{coqcode}
-	The rule \coqinline{lc_var} states that all free variables are locally closed. As we already discussed earlier, to show that an abstraction is locally closed, we use cofinite quantification to show that the opened body is locally closed. The last rule describes that in order to prove the local closure of an application, both expressions need to be locally closed.
+check :: Bool
+check = isOne (0?1)
+\end{minted}
+The intention behind this code is that we would like to know if a value of \cinline{0?1} equals one. Unfortunately this is not what the program does. Instead, the function \cinline{check} becomes nondeterministic too and yields \cinline{True} and \cinline{False} because \cinline{isOne} is evaluated for every possible value of \cinline{0?1}. To express what we originally intended, we need to encapsulate the nondeterminism that might occur in the argument of \cinline{isOne}. This is the purpose of \textit{set functions}. A set function returns all values of a nondeterministic expression as a set that can be manipulated like a normal data structure.
 
-	\section{Curry}
-	Curry \citep{report} is a programming language that combines functional and logical aspects. Created by an international initiative, Curry is predominantly aimed at providing a platform for research and teaching. Curry's syntax is similar to the functional programming language Haskell with the addition of nondeterminism, that is, a function can return different values for the same input, and logical variables, which allow the systematic search for unknown values. A short overview of Curry's logical features follows.
-	\begin{itemize}
-		\item While Haskell allows overlapping patterns, that is, multiple patterns that apply to the same argument, functions remain deterministic because only the first rule that matches the argument is evaluated. Curry does not limit the evaluation -- a function with overlapping patterns can return every possible result an input evaluates to. On the other hand, patterns do not need to be exhaustive, that is, cover every possible input, because a failed computation is a valid result unlike the exception Haskell returns. The following example shows the nondeterministic choice operator in Curry.
-		\begin{haskellcode}
-(?) :: a -> a -> a
-x ? _ = x
-_ ? y = y
-		\end{haskellcode}
-	
-		\item Unknown values are represented in Curry by \textit{logical} variables, that is, variables that are not bound to an expression. Logical variables are often called free variables, but to avoid ambiguity when talking about free variables in the locally nameless representation, we will call the concept of free variables in Curry logical variables. They are declared by adding \texttt{where} $v_1\dots v_n$ \texttt{free} to a term containing logical variables $v_1 \dots v_n$. To evaluate such a term, the variables are instantiated with a value of appropriate type. 
-		\begin{haskellcode}
-Prelude> x || False where x free
-{x=True} True
-{x=False} False
-		\end{haskellcode}
-		Evaluating the boolean or-operator applied to a logical variable \coqinline{x} and the expression \coqinline{True} in Curry yields two results equal to the possible values of \coqinline{x}.
-\begin{coqcode}
-Prelude> [1,2,3] =:= xs ++ _ where xs free   
-{xs=[]} True
-{xs=[1]} True
-{xs=[1,2]} True
-{xs=[1,2,3]} True
-\end{coqcode}
-	Logical variables are also useful to compute more advanced functions, for example, the prefixes of a list. The equational constraint operator \coqinline{=:=} is satisfied if the unification of both arguments yields a term without function symbols.
-	\end{itemize}
-	In the next chapter, we will work with an intermediate representation of Curry, called \textit{FlatCurry}\footnote{https://www.informatik.uni-kiel.de/~curry/flat/}. The language is used in Curry compilers like PAKCS or KiCS2 and can be used to reason about properties of Curry code.
-	\paragraph{FlatCurry}
-	The locally nameless representation of FlatCurry offers less syntactical constructs than Curry but extends the concept of namelessness we saw with $\lambda$-terms. We already know \coqinline{FVar} and \coqinline{Abs} from the $\lambda$-terms we discussed before, they work the same in FlatCurry.
-	\begin{coqcode}
-Inductive Expr : Type :=
-| BVar : VarIndex -> VarIndex -> Expr
-| FVar : atom -> Expr
-| Abs  : Expr -> Expr
-| Comb : CombType -> QName -> list Expr -> Expr
-| Let  : list Expr -> Expr -> Expr
-| FreeVars : nat -> Expr -> Expr
-| Or : Expr -> Expr -> Expr
-| Case : Expr -> list BranchExpr -> Expr
-with BranchExpr : Type :=
-     | Branch : TPattern -> Expr -> BranchExpr
-with TPattern : Set :=
-     | Pattern : Constructor -> nat -> TPattern
-with CombType :=
-     | Fun : CombType
-     | Con : CombType.
-	\end{coqcode}
-	Bound variables are represented by two arguments of type \coqinline{VarIndex}, a synonym for natural numbers. The first number is a de Bruijn index, but what do we need the second number for? FlatCurry has more constructs that can bind variables, namely \coqinline{Abs}, \coqinline{Case}, \coqinline{FreeVars} and \coqinline{Let} and allows multiple variables to be bound by a single \coqinline{Let} construct, so we need a mechanism to reference a specific variable, which the second index of bound variables is used for. For example, in the locally nameless representation, the term \coqinline{Let [A, B] (Or (BVar 0 0) (BVar 0 1)} corresponds to the Curry term \coqinline{let x = A; y = B in x ? y}. 
-	\par
-	\coqinline{FreeVars} can introduce multiple logical variables at once, indicated by the argument of type \coqinline{nat}. There is an important distinction between free and logical variables: The former is a construct introduced by the locally nameless representation that mostly occurs when manipulating bound variables, while the latter represents unknown values in Curry, as described above. In terms of semantics, an \coqinline{FVar}'s value depends on an entry in the environment that contains a value or expression, added by opening a \coqinline{Let} expression, for example. If the \coqinline{FVar} was introduced by \coqinline{FreeVars}, the environment only contains the information that the variable is considered a logical variable. Its value is determined by applying techniques like \textit{narrowing} or \textit{residuation} \citep{Hanus13}.
-	\par
-	The \coqinline{Case} construct binds multiple variables to expressions inside the \textit{case expression}, depending on its outermost constructor. The list of branch expressions contains patterns, that is, a constructor name and the number of variables in the pattern, and expressions that may reference the variables in the pattern.
-	\par
-	Finally, the \coqinline{Or} construct represents the nondeterministic choice between two expressions and the combination \coqinline{Comb} allows us to combine a function or constructor, distinguished by the \coqinline{CombType} argument, with a list of expressions. Functions are addressed by qualified names, which we need to be able to look up in an environment in order to obtain the corresponding definition. For example, the Curry term \coqinline{not True} is represented in FlatCurry by the expression
-	\begin{coqcode}
-Comb Fun ("Prelude", "not") [Comb Con ("Prelude", "True") []]
-	\end{coqcode}
-	with type entries for \coqinline{not} and \coqinline{True} in the environment. 
-\chapter{Typing Locally Nameless FlatCurry}
-	This chapter introduces a type system for locally nameless FlatCurry expressions, based on \citep{Curroqe}, an implementation of a FlatCurry type system with named variables. The locally nameless representation of FlatCurry is based on an existing implementation\footnote{https://git.informatik.uni-kiel.de/sad/curq/}. Before implementing the type system, we will discuss a few utility functions first.
-	\section{Implementation of LNR operations}
-	The most important operation on locally nameless terms that we will use in the type system is variable opening. Similar to the opening operation on $\lambda$-terms, we assume that all terms in $u$ are locally closed to prevent inadvertently capturing unbound variables of a term in $u$. Additionally, the function should be called with index zero initially.
-\begin{coqcode}
-Fixpoint open_rec (k: VarIndex) (u: list Expr) (e: Expr) :=
-  match e with
-  | BVar i j => if k === i then List.nth j u e else e
-  | FVar _ => e
-  | Abs e' => Abs (open_rec (S k) u e')
-  | Comb c qname es => Comb c qname (List.map (open_rec k u) es)
-  | Let es e' => Let (List.map (open_rec (S k) u) es) (open_rec (S k) u e')
-  | FreeVars n e' => FreeVars n (open_rec (S k) u e')
-  | Or e1 e2 => Or (open_rec k u e1) (open_rec k u e2)
-  | Case e' bs => Case (open_rec k u e')
-                       (List.map (fun b => match b with
-                                           | Branch pt e'' =>
-                                             Branch pt (open_rec (S k) u e'')
-                                           end)
-                       bs)
-  end.
+\begin{minted}{haskell}
+evalOne :: Int -> Bool
+evalOne x = valueOf 1 (set0 x)
+\end{minted}
 
-Definition open e u := open_rec 0 u e.
-\end{coqcode}
-	The first rule of \coqinline{open_rec} describes how both indices of bound variables are required to implement locally nameless terms with multiple binders in a single \coqinline{Let} construct: The first component is compared to the to be opened index $k$ and decides which binder the variable is bound to, while the second component represents the term in the list $u$ that the bound variable is replaced with. Similar to \autoref{LNRopening}, free variables are not modified and abstractions are opened by incrementing the index in the recursive call that opens the abstraction's body. \coqinline{FreeVars} constructs are opened like abstractions, despite the option to introduce multiple free variables, because the number of introduced variables affects only the second component of a \coqinline{BVar}.
-	For \coqinline{Let} expressions, the opening function with incremented index is mapped over the list of expressions and also applied to $e$ because $e$ usually contains variables bound by the \coqinline{Let} construct. In comparison, while the index of the recursive call is also incremented when mapping over the branches of a \coqinline{Case} construct, the \coqinline{Case} expression $e'$ is opened without incrementing the index because $e'$ cannot contain variables introduced in the \coqinline{Case} expression. Lastly, \coqinline{Comb} and \coqinline{Or} expressions are opened by applying the opening function to the respective sub-terms without incrementing the index since neither can introduce variables.
-	
-	\paragraph{Local closure}
-	
-	\begin{flushleft}
-		\begin{minipage}[t]{.45 \linewidth}
-			\begin{coqcode}
-Inductive lc : Expr -> Prop :=
-  | lc_var : forall x,
-      lc (FVar x)
-  | lc_abs : forall L e,
-      (forall (x : atom),
-        x `notin` L ->
-        lc (open e [FVar x])) ->
-      lc (Abs e)
-  | lc_comb : forall c qname es,
-      Forall lc es ->
-      lc (Comb c qname es)
-  | lc_let : forall L es e,
-      Forall lc es ->
-      (forall xs : list atom,
-        distinct L (length es) xs ->
-        lc (open e (map FVar xs))) ->
-    lc (Let es e)
-			\end{coqcode}
-		\end{minipage}
-		\hfill
-		\vrule
-		\vspace{.5 em}
-		\begin{minipage}[t]{.5 \linewidth}
-			\begin{coqcode}
- | lc_freevar : forall e' n L,
-     n > 0 ->
-     (forall xs, distinct L n xs ->
-       lc (open e' (map FVar xs))) ->
-       lc (FreeVars n e')
- | lc_or : forall e1 e2,
-     lc e1 ->
-     lc e2 ->
-     lc (Or e1 e2)
- | lc_case : forall L e bs,
-     lc e ->
-     0 < List.length bs ->
-     Forall2 
-       (fun e n => forall xs,
-          distinct L n xs ->
-          lc (open e (map FVar xs)))
-       (map branchExpr bs)
-       (map (compose pArity pattern) bs) ->
-     lc (Case e bs).
+Curry systems like KiCS2 or PAKCS implement set functions in the respective target language, that is, tree-like structures in Haskell and \cinline{findall} in Prolog. This entails slight differences when it comes to handling failures and nonterminating evaluations. Ideally, set functions would be implemented on a higher level, that is, directly in Curry. A recent publication by \citet{synsf} tackles this problem and presents a technique to synthesize the set function $f_S$ of a given $f$. Based on this, the process of building a working prototype is documented in this report. We begin with the general approach and a rough overview of the development process followed by a more detailed look at the implementation and it's limitations, concluded by a final chapter about the results and future improvements.
+\chapter{Approach}
+The research project is divided into two major parts: Familiarizing with the general topic of set functions by means of a prototype version of "KiCS2.5" and the implementation of a prototype based on Synthesizing Set Functions.
+\section{Time line}
+The project lasted from April to October 2018. Below is a short overview of what happened in each month.
 
-			\end{coqcode}
-		\end{minipage}
-	\end{flushleft}
-	The implementation of \coqinline{lc_var} and \coqinline{lc_abs} resembles the inference system we used to define local closure on $\lambda$-terms in \autoref{lc}. Cofinite quantification, that is, a statement that holds for some $x$ that is not a member of the set $L$, is implemented in Coq by using \coqinline{`notin`}, the propositional equivalent to $\notin$. In this case, $x$ is an atom that is used to open $e$. The specific name of the atom is irrelevant, as long as it is not a member of $L$. Now, how do we choose an appropriate $L$? 
-	\par \noindent
-	If we consider an expression where no other free variables occur, for example \coqinline{Abs (BVar 0)}, $L$ can be the empty set. Since this is rarely the case, we need to prevent clashes like opening \coqinline{Abs (Or (BVar 0) (FVar x))} with \coqinline{FVar x}. In this case, $L$ is $\{x\}$ because $x$ already occurs in the expression. To make this process easier, we can create our own proof tactic \coqinline{gather_atoms}. It uses the Metalib function \coqinline{gather_atoms_with} that maps a function over all hypotheses of the current proof. If the hypothesis has the appropriate type, the result is added to $L$.
-	\begin{coqcode}
-Ltac gather_atoms ::=
-  let A := gather_atoms_with (fun xs : atoms => xs) in
-  let B := gather_atoms_with (fun x : atom => singleton x) in
-  let C := gather_atoms_with (fun A : list (atom * TypeExpr) => dom z) in
-  let D := gather_atoms_with (fun e : Expr => Util.free_vars e) in
-  constr:(A `union` B `union` C `union` D).
-	\end{coqcode}
-	Possible sources of atoms are other sets of atoms $xs$, single atoms $x$, atom environments and expressions. To create a set of atoms from a single atom, the function \coqinline{singleton} is used. The set of atoms that occurs in an environment is returned by \coqinline{dom} and the function \coqinline{free_vars} returns the set of atoms from an expression. All these sets united yield an $L$ that contains all occurrences of atoms in the current proof. Therefore, the statement is only quantified over atoms that cannot clash with existing atoms.
-	\par
-	Returning to the topic of local closure, if an abstraction's body, opened with any free variable that doesn't clash with other variables, is locally closed, the abstraction is, too. The same principle is applied to the other constructs that can bind variables, with the difference that wherever multiple variables can be introduced, we use \coqinline{distinct} instead of \coqinline{`notin`}.
-	
-	\begin{coqcode}
-Inductive distinct : atoms -> nat -> list atom -> Prop :=
-  | d_nil : forall L : atoms, distinct L 0 []
-  | d_cons : forall (L : atoms) (x : atom) (ys : list atom) (n : nat),
-      x `notin` L -> 
-      distinct (union L (singleton x)) n ys -> 
-      distinct L (1 + n) (x :: ys)
-	\end{coqcode}
-	The inductively defined proposition \coqinline{distinct} states that for a set of atoms $L$, the $n$ atoms in the list $ys$ are distinct and do not occur in L. At first glance, it might not be obvious why $n$ is a separate argument of \coqinline{distinct}, since $n = \text{length} \ ys$. The importance of the additional parameter is explained by the relational nature of inductively defined propositions: There are no fixed input or output arguments, similar to relations in logical languages. Therefore, when we supply only a set of atoms and a number $n$ to \coqinline{distinct}, Coq can derive a list that contains $n$ atoms.
-	\par
-	The first rule of \coqinline{distinct} states that all elements of the empty list are distinct for every set of atoms.
-	For non-empty lists, the list's head cannot occur in $L$ and the tail needs to satisfy \coqinline{distinct} with $x$ added to $L$.\\
-	\par  \noindent
-	Another inductively defined proposition that we used to define local closure is \coqinline{Forall}.
-	As an higher-order proposition, \coqinline{Forall} states that for a proposition $P$ and a list $l$ every element of $l$ satisfies P.
-	\begin{coqcode}
-Inductive Forall (A : Type) (P : A -> Prop) : list A -> Prop :=
-  | Forall_nil : Forall P [] 
-  | Forall_cons : forall (x : A) (l : list A),
-      P x -> 
-      Forall P l -> 
-      Forall P (x :: l)
-	\end{coqcode}
-	There are versions of \coqinline{Forall} that work with propositions of higher arity. In general, \coqinline{Foralln} states for an $n$-ary proposition and $n$ lists of length $m$ that $P x_1 \dots x_n$ holds for the $i$-th element of every list with $i \leq m$.
-	
-    \section{Representation of Types}
-    While the same motivations described in \autoref{motivations} also apply to type expressions in functional languages, the implementation of a type system that yields locally nameless type expressions poses a few problems. For example, the abtract data type \coqinline{atom} that is used in the Metalib library works great for proofs but defining computational functions like the unification of two types results in rather complex proofs. Therefore, we will use type expressions with explicit variables indices, represented by natural numbers.
-    \begin{coqcode}
-Definition TVarIndex := nat.
-Definition QName := prod string string.
-
-Inductive TypeExpr : Type :=
-| TVar  : TVarIndex -> TypeExpr
-| TFunc : TypeExpr  -> TypeExpr      -> TypeExpr
-| TCons : QName     -> list TypeExpr -> TypeExpr.
-    \end{coqcode}
-	Functional types, for example $a \rightarrow b \rightarrow c$, are represented by \coqinline{TFunc}. Since the arrow operator is right-associative, the corresponding term is \coqinline{TFunc a (TFunc b c)}. Data types are created by using \coqinline{TCons}. Its first argument is a qualified name of the form \coqinline{(module name, type name)}, while the second parameter is a list of argument types. For types like \coqinline{Bool} that don't have argument types, this list is empty.
-	
-	\section{Type System}
-	The purpose of a type system is to assign every valid expression $e$ its corresponding type $\tau$. One important part of this process is an \textit{environment} $\Gamma$ that contains types of all defined functions and data types as well as local bindings. We distinguish between an environment for predefined functions that is created by parsing the program initially and an environment that stores local variable bindings which can change while typing an expression.
-	\begin{coqcode}
-Notation AtomEnv := (list (atom * TypeExpr)).
-Notation QNameEnv := (list (QName * TypeEntry)).
-	\end{coqcode}
-	\begin{coqcode}
-Inductive TypeEntry : Type :=
-| FunE : TypeExpr -> TypeEntry
-| ConE : TypeExpr -> TypeEntry.
-	\end{coqcode}
-	Environments are represented by a list of key--value pairs. The environment \coqinline{QNameEnv} distinguishes functions and constructors explicitly by wrapping a qualified name's corresponding type in a \coqinline{TypeEntry}, while free variables are typed by looking up atoms in the \coqinline{AtomEnv}.
-	
-	\paragraph{Typing Rules}
-	After defining the environments, FlatCurry expressions and type expressions, we can implement typing rules. The syntax to express that in the environment $\Gamma \cup \Delta$ an expression $e$ has the type $T$ is $\Gamma \cup \Delta \vdash e ::: T$. We will only discuss three exemplary typing rules because not all rules have LNR specific requirements.
-	\begin{coqcode}
-Reserved Notation "Gamma ∪ Delta '|-' t ':::' T" (at level 40).
-Inductive hasType : AtomEnv -> QNameEnv -> Expr -> TypeExpr -> Prop :=
-	\end{coqcode}
-	The inductively defined proposition \coqinline{hasType} consists of a rule for every constructor of FlatCurry expressions, except for \coqinline{BVar}. The reason for this is that a bound variable cannot be a valid expression independently. A \coqinline{BVar} can only occur as a part of another construct that binds the variable. As we will see in the following typing rules, terms that contain bound variables are opened with free variables when being typed. As a consequence, every bound variable in a valid term is converted to an \coqinline{FVar} and subsequently being typed by the following rule.
-	
-	\begin{coqcode}
-| T_Var : forall A Q x T,
-    uniq A ->
-    binds x T A ->
-    A ∪ Q |- (FVar x) ::: T
-	\end{coqcode}
-	\noindent
-	Typing a free variables is done by looking up its atom argument $x$ in the atom environment $A$. We use the predicate \coqinline{uniq} to ensure that the environment does not bind any atoms multiple times. If the \coqinline{AtomEnv} is properly formed, we need to show that $A$ binds $x$ to some type $T$, which is exactly what the proposition \coqinline{binds}\footnote{\coqinline{binds : forall A : Type, atom -> A -> list (atom * A) -> Prop}} is for.
-	If both premises can be shown, the conclusion, that is, \coqinline{FVar x} has the type $T$ in the environment $A \cup Q$, holds.
-
-	\begin{coqcode}
-| T_Abs : forall (L : atoms) A Q e T1 T2,
-    (forall (x : atom), 
-      x `notin` L ->
-      ((x ~ T1) ++ A) ∪ Q |- (open e [FVar x]) ::: T2) ->
-    A ∪ Q |- (Abs e) ::: (TFunc T1 T2)
-	\end{coqcode}
-	\noindent
-	An abstraction has the functional type $T_1 \rightarrow T_2$. Again, we use cofinite quantification to add an $x$ with $x \notin L$ to the environment with the type $T_1$. Then, we open $e$ with the free variable represented by $x$. If $e$, with all occurrences of the variable bound by the abstraction replaced with \coqinline{FVar x}, is typed to $T_2$ in the new environment, the type of \coqinline{Abs e} is \coqinline{TFun T1 T2}.
-    
-    \begin{coqcode}
-| T_Let : forall L A Q es e T Ts,
-    Forall2 (hasType A Q) es Ts ->
-    (forall xs,
-      distinct L (length es) xs ->
-      let A' := app (combine xs Ts) A in
-      A' ∪ Q |- open e (map FVar xs) ::: T) ->
-    A ∪ Q |- (Let es e) ::: T
-    \end{coqcode}
-	\noindent
-	At first glance, the rule for typing \coqinline{Let} expressions may look similar to the previous rule. This impression is warranted since \coqinline{T_Let} also uses cofinite quantification to introduce fresh variables. One difference is the first statement that uses \coqinline{Forall2} to state that, for every expression $e$ in $es$ and its corresponding type $T$ in $Ts$, the proposition \coqinline{hasType A Q e T} needs to hold. This statement is used to acquire the types that we need to add to the environment.
-	\par
-	\coqinline{Let} expressions can introduce multiple variables at once and thus, the cofinite quantification binds a list of atoms $xs$. Instead of stating that one atom should not occur in $L$, we use \coqinline{distinct} to state that all atoms in the list should be distinct and not occur in $L$. The atoms are combined with the types of the corresponding expressions and added to the environment. If the expression $e$, opened with the list of free variables created from $xs$, has the type $T$, the whole \coqinline{Let} expression does, too.	
-	
-	\paragraph{Examples}
-	To conclude this section, we will have a look at two example proofs that demonstrate how the operations and propositions we defined above work. First, we show that an expression is locally closed. The full proof is shown below, with annotations that correspond to the subgoal views in \autoref{lcproof}.
-		\begin{coqcode}
-Example e_lc : forall x, lc (Abs (Or (BVar 0 0) (FVar x))).
-  Proof.
-    intros. (* 1 *)
-    let L' := gather_atoms in apply lc_abs with (L := L').
-    intros. (* 2 *)
-    simpl.  (* 3 *)
-    apply lc_or. (* 4 *)
-    - apply lc_var.
-    - apply lc_var.
-  Qed.
-	\end{coqcode}
-
-	\begin{figure}[H]
-	\begin{flushleft}
-	\begin{minipage}[t]{.4 \linewidth}
-		\begin{coqcode}
-x : atom
-
-============================(1)
-lc (Abs (Or (BVar 0 0) (FVar x)))
-
-
-x, x0 : atom
-H : x0 `notin` singleton x
-============================(2)
-lc (open (Or (BVar 0 0) (FVar x))
-[FVar x0])
-		\end{coqcode}
-	\end{minipage}
-	\hfill
-	\vrule
-	\vspace{.5 em}
-	\begin{minipage}[t]{.55 \linewidth}
-		\begin{coqcode}
-  x, x0 : atom
-  H : x0 `notin` singleton x
-  ============================(3)
-  lc (Or (FVar x0) (FVar x))
-
-
-  x, x0 : atom
-  H : x0 `notin` singleton x
-  ============================(4)
-  lc (FVar x0)
-
-  subgoal 2 is:
-  lc (FVar x)
-		\end{coqcode}
-	\end{minipage}
-\end{flushleft}
-	\caption{Subgoals of the proof \coqinline{e_lc}}
-	\label{lcproof}
-	\end{figure}
-
-	To begin the proof, we need to introduce the universally quantified variable $x$. The remaining goal (1) is a statement that we can show by applying a rule of \coqinline{lc}. Since the outermost constructor of the expression is \coqinline{Abs}, the matching rule is \coqinline{lc_abs}. We used cofinite quantification in \coqinline{lc_abs}, so applying the rule requires us to choose an appropriate set of atoms \coqinline{L}. As discussed before, the easiest way to create this set is the tactic \coqinline{gather_atoms}. The only hypothesis we have at this point is \coqinline{x : atom} and therefore, the generated \coqinline{L} contains only \coqinline{x}.
-	\par
-	Applying \coqinline{lc_abs} and introducing the newly created hypotheses yields the goal (2). Coq chose an atom \coqinline{x0} that is not a member of \coqinline{L}, as stated in \coqinline{H}. Now, we need to show that the abstraction's body, opened with the fresh variable \coqinline{x0}, is locally closed. To open the expression \coqinline{Or (BVar 0 0) (FVar x)}, we replace all bound variables \coqinline{BVar 0 m} with the m-th element of the supplied list, that is, \coqinline{FVar x0} for \coqinline{BVar 0 0}, as shown in (3).
-	\par
-	The last step is applying \coqinline{lc_or}, which yields two subgoals (4) that require us to show that a free variable is locally closed. This is true by definition, so applying \coqinline{lc_var} twice concludes the proof. Since we showed the local closure of both arguments of the nondeterministic choice operator, it is, too. Similarly, since we showed that the abstraction's opened body is locally closed for all cofinite quantified \coqinline{x}, the abstraction is locally closed. This yields the original statement and demonstrates how local closure proofs work. \\
-	\par \noindent
-	The second example shows how to type the identity function \coqinline{Abs (BVar 0 0)}.
-
-	\begin{coqcode}
-Example e_ty :  [] ∪ [] |- (Abs (BVar 0 0)) ::: TFunc (TVar 0) (TVar 0).
-  Proof.
-    apply T_Abs with (L := empty).
-    intros. simpl. (* 1 *)
-    apply T_Var. (* 2 *)
-    - apply uniq_push. (* 3 *)
-      + apply uniq_nil.
-      + apply notin_empty. (* 4 *)
-    - apply in_eq.
-  Qed.
-	\end{coqcode}
-	\begin{figure}[H]
-	\begin{flushleft}
-		\begin{minipage}[t]{.47 \linewidth}
-			\begin{coqcode}
-x : atom
-H : x `notin` empty
-============================(1)
-[(x, TVar 0)] ∪ [] |- FVar x ::: TVar 0
-
-				
-x : atom
-H : x `notin` empty
-============================(2)
-uniq [(x, TVar 0)]
-
-subgoal 2 is:
-binds x (TVar 0) [(x, TVar 0)]
-			\end{coqcode}
-		\end{minipage}
-		\hfill
-		\vrule
-		\vspace{.5 em}
-		\begin{minipage}[t]{.48 \linewidth}
-			\begin{coqcode}
-  x : atom
-  H : x `notin` empty
-  ============================(3)
-  uniq []
-
-  subgoal 2 is:
-  x `notin` dom []
-
-
-  x : atom
-  H : x `notin` empty
-  ============================(4)
-  binds x (TVar 0) [(x, TVar 0)]
-			\end{coqcode}
-		\end{minipage}
-	\end{flushleft}
-	\caption{Subgoals of the proof \coqinline{e_ty}}
-	\label{lcproof}
-\end{figure}
-	\noindent
-Similar to the local closure proof, we begin by applying the matching rule for the outermost constructor \coqinline{Abs} and, since we also used cofinite quantification in this rule, gain two hypotheses. (1) Recalling the definition of \coqinline{T_Abs}, the fresh variable is added to the atom environment with the argument type of the function, that is, \coqinline{TVar 0}. Therefore, we need to show that \coqinline{FVar x} has the type \coqinline{TVar 0} in the environment \coqinline{[(x, TVar 0)]}.
-\par
-When applying \coqinline{T_Var}, two subgoals (2) are generated: We need to prove that the environment satisfies \coqinline{uniq} and that \coqinline{x} is bound to \coqinline{TVar 0}.
-\begin{coqcode}
-Inductive uniq (A : Type) : list (atom * A) -> Prop :=
-  | uniq_nil : uniq []
-  | uniq_push : forall x a E, 
-      uniq E -> 
-      x `notin` dom E -> 
-      uniq (x ~ a ++ E).
-\end{coqcode}
-Since the environment is a non-empty list, we can only use \coqinline{uniq_push} to advance the proof. This entails the goals shown in (3). The next subgoal \coqinline{uniq []} is proven by applying \coqinline{uniq_nil} because the list is now empty. The other subgoal represents the second premise of \coqinline{uniq_push}, that is, \coqinline{x} does not occur in the domain of the environment \coqinline{dom [] = empty}. This is obviously true, as stated in \coqinline{notin_empty}.
-\par
-The last subgoal (4) is the second premise of \coqinline{T_Var}. To show that the environment binds \coqinline{x} to the type we expect, a corresponding entry needs exist. The first and only entry in the environment satisfies this requirement, so applying \coqinline{in_eq} finishes the proof because \coqinline{binds} is a specialized version of the predefined proposition \coqinline{In}.
+\begin{itemize}
+	\item April marked the start of the project and began with articles by \citet{Antoy:2009:SFF:1599410.1599420} as well as \citet{Christiansen2013ASF}. The former describes the semantics of set functions by means of a graph rewriting system while the latter defines an operational semantics. The papers represented a rather abstract introduction of the topic and were supplemented by a first look at the KiCS2 set function implementation.
+	\item May started with a discussion about an issue\footnote{https://git.ps.informatik.uni-kiel.de/curry/kics2/issues/15} of KiCS2's set function implementation. The idea of finding and fixing this problem was abandoned due to the complexity of the existing implementation. Instead, working on a minimal implemtation\footnote{https://git.informatik.uni-kiel.de/fte/proto\_kics} of KiCS2 seemed like a good way to gain a deeper understanding of set functions. The addition of set functions was based upon the implementation presented by \citet{Brassel2010ImplementingFL}.
+	\item June was the first month with some code output\footnote{https://git.informatik.uni-kiel.de/stu114713/proto\_kics/}. Along the way of adapting Braßel's implementation, functions to pull up choices to the root of an expression and a normal form transformation were needed. To test the new implementation, the existing examples\footnote{https://git.ps.informatik.uni-kiel.de/curry/kics2/blob/master/testsuite/LibraryTests/testSetFunctions.curry} would have been a good choice but it became apparent that due to the minimalism of the prototype, this would have been a difficult task for the more complex examples. Mid-month the exam preparation period started and the project was paused.
+    \item In July nothing noteworthy -- in regard to the project -- happened.
+    \item August marked the end of the first part of the project. The KiCS2.5 set function implementation worked for a simple example but had problems with the duplication of cover information which is used in Braßel's implementation to distinguish different levels of encapsulation. Since the final version of Synthesizing Set Functions was available, the second half of the project began. The goal was to implement a tool that transforms a function within a FlatCurry program into an AbstractCurry program that contains the synthesized set function based on the top-level sharing library. The month ended with the implementation of the plural function transformation.
+    \item September yielded the implementation of totalizing partial functions and the generation of normal form instances. Due to a misunderstanding, the instance generation generated FlatCurry expressions which unnecessarily complicated the code due to the lack of type classes. Ultimately, the experience proved to be helpful in the implementation of  multi-parameter type class instances. To make the code more readable, the transformation was adapted to run within the \cinline{StateT} monad. It was discovered that KiCS2 cannot handle the monad instance required to define \cinline{StateT}.  Therefore, PAKCS was used for the remainder of the project.
+    \item October represented the last part of the project. After implementing the multi-parameter class instances for \cinline{toValST} and \cinline{FromValST} as well as \cinline{toST} and \cinline{FromST}, some issues regarding generated function names and the selection of appropriate instance arguments for polymorphic instances were fixed. Finally, all parts of the puzzle were pieced together and resulted in the first prototype of the set function synthesizer. As a last step, sharing was implemented. 
+\end{itemize}
+In the next chapter, we explore the design decisions and implementation of the tool.
+\chapter{Implementation}
+\section{Design decisions}
+Why FlatCurry -> AbstractCurry?
+\section{Synthesizing phases}
+\section{Examples}
+\section{Limitations}
 
 \chapter{Conclusion}
-	At the beginning of the paper, we explored the properties of different representations for expressions in programming languages. De Bruijn indices are useful to avoid name clashes and they allow a unique representation of $\alpha$-equivalent terms, but free variables have a rather complex definition in the original notation. The combination of nameless bound variables and syntactically distinguishable free variables led us to the locally nameless representation. We had a look at locally nameless $\lambda$-terms and the basic operations required to work with such expressions, that is, variable opening and local closure. After a short introduction to Coq, we discussed Curry and its unique features, non-determinism and logical variables. To reason about Curry expressions, we had a look at a sub-language of Curry, called FlatCurry, in locally nameless representation.\\
-	\par
-	The third chapter began with implementations of variable opening and local closure for locally nameless FlatCurry, supplemented by an interlude about tactics and propositions from the Metalib library. We defined type expressions and environments that store information about atoms and functions plus data types. To implement the type system, we used cofinite quantification to express that a statement should hold for every atom that does not occur in a finite set. In the last section of the chapter, we proved two examples about local closure and the type system.\\
-	\par 
-	To conclude this paper, we will discuss the (dis)advantages of the locally nameless representation briefly. We saw that the LNR allows expressions that do not have a corresponding named term. Therefore, we need to check expressions for local closure whenever terms are opened to prevent accidentally binding variables. In addition, the distinction between bound and free variables entails the need for different operations to work with both. Another negative point is that the nameless notation is not as readable as named variables.
-	\par
-	The advantages of the LNR are the unique representation of $\alpha$-equivalent terms and that no variable renaming is necessary. Therefore, operations like substitution that are more complex in named notations, are simple recursive functions in the LNR. Since the type system uses confinite quantification whenever variable names are required, proofs without reasoning about explicit variable names are possible, which makes the process of reasoning about locally nameless terms more flexible and compensates for the more unintuitive naming of variables.
-	\par
-	 For example, proving weakening, that is, if an expression has a type in some environment, it has the same type in a well-formed extension of that environment, yields a simple proof for a $\lambda$-language.
-	 \newpage
-	\begin{coqcode}
-Lemma typing_weakening_strengthened : forall C E F G e T,
-  hasType (G ++ E) C e T -> uniq (G ++ F ++ E) ->
-  hasType (G ++ F ++ E) C e T.
-	\end{coqcode}
-	The same statement can be proven for a FlatCurry type system, although the higher complexity of the constructors makes the proof more difficult because Coq cannot  generate sufficiently strong induction hypotheses automatically. 
-	\par
-	In conclusion, the locally nameless representation is well-suited for theoretical applications like proof assistants, while more practically oriented use cases benefit from a named notation.
+
+
 % Literatur
 \bibliographystyle{plainnat}
 \bibliography{ResearchProject18}
 \appendix
 \chapter{Repository}
-\label{usage}
-The source code presented in this paper can be found at the following link: \\ \url{https://git.informatik.uni-kiel.de/stu114713/curq/}. \\ There are three branches with different approaches that were developed in the creation of this paper.
-\begin{itemize}
-	\item \textbf{typing}: The type system presented in this paper with rudimentary type inference.
-	\item \textbf{typingNoTI}: An older version without type inference that is better suited for proofs.
-	\item \textbf{namelessTyping}: An experimental version with type expressions in locally nameless representation. The type system does not fully support polymorphic expressions.
-\end{itemize}
-The files relevant to this paper are listed below.
-\begin{itemize}
-	\item \coqinline{src/Typing/FlatCurryType.v} defines type expressions, basic functions and unification.
-	\item \coqinline{src/Typing/FlatCurryTyping.v} contains the type system and examples.
-	\item \coqinline{src/FlatCurry/Syntax.v} defines locally nameless FlatCurry.
-	\item \coqinline{src/FlatCurry/Utils.v} contains the implementation of LNR operations.
-\end{itemize}
-In order to compile all Coq files of this project, the \texttt{\_CoqProject} files in \coqinline{src} and \coqinline{Meta} can be used.
-\begin{minted}{bash}
-coq_makefile -f _CoqProject -o Makefile
-\end{minted}
-This generates a \texttt{Makefile} that can be executed with \texttt{make}. The generated \texttt{Makefile} resolves dependencies and calls the Coq compiler \texttt{coqc}. Subsequently, the files can be opened and imported.
-\end{document}
 \end{document}
