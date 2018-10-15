@@ -133,13 +133,179 @@ The project lasted from April to October 2018. Below is a short overview of what
 \end{itemize}
 In the next chapter, we explore the design decisions and implementation of the tool.
 \chapter{Implementation}
-\section{Design decisions}
-Why FlatCurry -> AbstractCurry?
-\section{Synthesizing phases}
-\section{Examples}
-\section{Limitations}
+The set function synthesizing tool is supplied the name of the module and function name that the set function should be synthesized for. As a result, the necessary plural functions, instances and the set function are returned as pretty-printed AbstractCurry code. Internally, the source code file is transformed into a FlatCurry program and then further processed. In conclusion, the transformation's input is FlatCurry and its output is AbstractCurry code. This low-to-high approach, in terms of language complexity, has two advantages. One, FlatCurry has a multitude of useful program transformation libraries and functions have only one rule by design, which is an assumption made in the paper, too. Two, AbstractCurry supports type classes, which saves us some of the effort to generate type class instances manually. Unfortunately, multi-parameter type classes are not yet implemented in Curry, so some manual instance handling is inevitable.
 
-\chapter{Conclusion}
+Over the course of the development process it became apparent that a state is necessary to create unique variable names and to keep the program readable.
+
+\section{State}
+The state has a FlatCurry and AbstractCurry program. The former is the initial program while the latter holds the generated code. There are five different maps: two type maps that map type names to generated ST type names and vice versa, as well as one map that maps constructor names to constructors of the ST type and a function map that maps function names to their plural representations. The variable \cinline{supplyVarMap} is used in the implementation of sharing and stores variables that need to be assigned an ID or IDSupply value. More on that in \todo{link}. The last elements of the state are a list of type pairs, more precisely the types of a function and its plural function, and a variable that represents the biggest variable index used so far.
+\begin{minted}{haskell}
+data State = State
+{
+    currentProg  :: Prog,
+    currentCProg :: CurryProg,
+    currentModule :: String,
+    currentFunction :: QName,
+    typeMap      :: QMap,
+    typeSTMap    :: QMap,
+    consMap      :: QMap,
+    funcMap      :: QMap,
+    supplyVarMap :: SMap,
+    funcTypes    :: TList,
+    maxVar       :: VarIndex
+}
+
+type QMap = FM QName QName
+
+type SMap = FM QName [(VarKind, CTVarIName)]
+
+type TList = [(CTypeExpr, CTypeExpr)]
+\end{minted}
+In combination with the Haskell state transformer monad, the resulting code is much more readable than manually folding a state argument through the whole transformation and allows for a demand-driven definition of the operations because demanded functions, types or instances can be looked up and generated if necessary.
+
+\section{Synthesizing phases}
+The synthesizing process is divided into multiple phases, which we will explore in this chapter. To make the process easier to follow, the function \cinline{anyOf} is used as an example of the different phases.
+\begin{minted}{Haskell}
+anyOf :: [Int] -> Int
+anyOf (x:xs) = x ? anyOf xs
+\end{minted}
+
+\subsection{CompactFlatCurry}
+The first step of the transformation is to collect all functions and data types that are used within the transformation target by means of the function \cinline{compactFlatCurry} defined in \cinline{FlatCurry.Compact}. Since the transformation is mostly demand-driven, this step could be omitted in the future if handling imported modules is implemented.
+\begin{minted}{Haskell}
+anyOf :: [Int] -> Int
+anyOf (x:xs) = x ? anyOf xs
+
+(?) :: a -> a -> a
+x ? _ = x
+_ ? x = x
+
+data List a = Nil | Cons a (List a)
+\end{minted}
+The choice operator appears in the rule of \cinline{anyOf} and the list data type in the function type. Therefore, both are added to the program. Since \cinline{Int} does not need to be transformed, it is omitted here.
+
+\subsection{Totalizing partial functions}
+The definition of \cinline{anyOf} is partial because no rule covers the empty list. Since the transformation assumes total functions, the function is totalized in this step. This works by creating a list of  constructor name and type declaration pairs for the program. Then, the transformation recursively descends down the function declaration until a case expression is found. Here, the names of covered constructors are collected and the constructors' type is looked up. If a constructor from the type declaration is not covered, a new branch with the expression \cinline{failed} is added.
+\begin{minted}{Haskell}
+anyOf :: [Int] -> Int
+anyOf xs = case xs of
+  (y:ys) -> x ? anyOf xs
+  []     -> failed
+\end{minted}
+
+\subsection{Lifting case expressions}
+The transformation requires uniform functions, so nested case expressions can be problematic. Fortunately, the module \cinline{LiftCases} already implements lifting nested case expressions. Unfortunately, the module only works with type-annotated FlatCurry because the lifted function's type is generated from the type annotations. To annotate a FlatCurry program with types, the function \cinline{inferProg} from the module \cinline{FlatCurry.Annotated.TypeInference} is useful. Considering that the type inference does not work well with type classes and that the inferred information is discarded in the next step, it is desirable to implement this step without the usage of annotated FlatCurry.
+
+\subsection{Plural function transformation}
+The plural function transformation unifies multiple steps. In general, a FlatCurry function declaration is transformed into an AbstractCurry function. To do this, the function name of the transformation target is looked up. A new name for the plural function is generated and an entry in the function map is added to replace recursive calls to the function. Then, the function's type is transformed into an ST type. This is done by adding an \cinline{ST} constructor to every top-level argument and then transforming the argument. The interesting part happens when a type constructor is found: If the type lookup yields an ST type, it replaces the previous type. If this is not the case, the type declaration is looked up in the program and the type declaration is transformed.
+
+The type transformation distinguishes two cases. Basic types like \cinline{Int}, where all constructors are nullary, and complex types. The basic case is simply dealt with because no transformation is necessary, only an entry like \cinline{Int} $\longleftrightarrow$ \cinline{Int} is added to the type maps. Complex types get a new ST name that is added to the type maps. Then, the constructors are transformed by adding their ST names to the constructor map and transforming their types.
+
+Finally, the rule of the function needs to be transformed. This is where we need think about sharing for the first time\footnote{The transformed type has an additional \cinline{IDSupply} argument that was not mentioned above, so technically this is not correct.}. The plural function has an \cinline{IDSupply} argument that we need to distribute between all occurrences of plural function calls and \cinline{Choice} constructors that require an \cinline{ID}. The approach chosen here is to insert a variable wherever an \cinline{IDSupply} or \cinline{ID} is needed, combined with an entry in the \cinline{supplyVarMap}. The map differentiates both kinds of variables and is used when the function's expression has been transformed. Then, the list of variables in the map are transformed into a list of local declarations where, beginning with the function's \cinline{IDSupply} argument, the supply is split into two new supplies where one part is assigned to a variable and the other part is used to create new supplies.
+
+The expression transformation works like described in the paper. Literals are wrapped in a \cinline{Val} constructor and variables remain untouched. The \cinline{failed} constructor is replaced with the ST constructor \cinline{Fail}. Other constructors are replaced with the ST type equivalent if necessary. When a function is found, its name is looked up in the respective map and, if not already done, the function's plural function is generated. The other expressions are mostly recursive calls of the expression transformation and the adaptation of the differences between FlatCurry and AbstractCurry.
+
+\begin{minted}{Haskell}
+anyOfP :: IDSupply -> ST (STList Int) -> ST Int
+anyOfP v6 v_1 = applyST
+  (\v0 -> case v0 of
+    STCons v_2 v_3 -> choiceP v5 v_2 (anyOfP v4 v_3)
+    STNil          -> Fail
+  )
+  v_1
+ where
+   v5 = rightSupply v6
+   v7 = leftSupply v6
+   v4 = rightSupply v7
+
+choiceP :: IDSupply -> ST t0 -> ST t0 -> ST t0
+choiceP v2 v_1 v_2 = Choice v1 v_1 v_2
+  where v1 = uniqueID v2
+
+data STList t0 = STNil | STCons (ST t0) (ST (STList t0))
+\end{minted}
+
+\subsection{Normal form instances}
+The generation of normal form instances is centered around the function \cinline{nfSTCase} which yields an expression and takes a constructor name, a list of variables that occur in the constructor's pattern and a list of variables that have been bound by case variable patterns. The top-level case expression of \cinline{nf} distinguishes the constructors of the ST type. If the constructor does not have arguments, the result is the same constructor wrapped in \cinline{Val}. Otherwise \cinline{nfSTCase} is used to create the nested case expressions. The recursive call of \cinline{nf} is applied to the first variable in the constructor variable list and the result is distinguished between \cinline{Choice}, \cinline{Fail} and the other constructors.
+The last case is the most interesting one because the result is matched by a variable that the next call of \cinline{nfSTCase} receives. The constructor variable that was used in the \cinline{nf} expression before is removed from the list and the next nested case expression is created. This procedure is done until the list of constructor variables is empty. Then, the constructor is applied to the list of bound variables that were collected in the calls to \cinline{nfSTCase} and wrapped with a \cinline{Val}.
+\begin{minted}{Haskell}
+instance NF t0 => NF (STList t0) where
+  nf v9 =
+    case v9 of
+      STNil -> Val STNil
+      STCons v10 v11 ->
+        case nfST v10 of
+          Choice v12 v13 v14 -> Choice v12 (nf (STCons v13 v11))
+                                           (nf (STCons v14 v11))
+          Fail -> Fail
+          v15 ->
+            case nfST v11 of
+              Choice v16 v17 v18 -> Choice v16 (nf (STCons v15 v17))
+                                               (nf (STCons v15 v18))
+              Fail -> Fail
+              v19 -> Val (STCons v15 v19)
+\end{minted}
+
+\subsection{ConvertST instances}
+Generating the ConvertST requires that we know which types need to be converted. When plural functions are generated, their type is added to the state together with the original function's state. From this information, the necessary instances can be inferred.
+For example, \cinline{anyOf :: [Int] -> Int} and \cinline{anyOfP :: ST (STList Int) -> ST Int}\footnote{The \cinline{IDSupply} argument is omitted because it does not add any information.} are added when transforming \cinline{anyOf}. Then, both types are compared by removing the ST constructors and comparing the remaining type constructors. In this case, the result without duplicates is \cinline{[([], STList), (Int, Int)]}. Now we know that we need instances for both type pairs. The \cinline{(Int, Int)} instance is just a specialized version of \cinline{id}.
+\begin{minted}{Haskell}
+toValST_Int_Int :: Int -> Int
+toValST_Int_Int = id
+
+fromValST_Int_Int :: Int -> Int
+fromValST_Int_Int = id
+\end{minted}
+Complex instances like \cinline{([], STList)} are generated by iterating over the matching constructor pairs of the types. Since multi-parameter type classes are not supported in Curry yet, type variables result in additional instance function arguments. The rules of the instances are generated according to the pattern shown in the paper. The only difference is that whenever a recursive instance call is necessary, we need to inspect the pattern variable of the the constructor for its type. If it is the same type we are currently generation the instance for, a simple recursive call suffices. If it is polymorphic, the appropriate instance function argument (the order of arguments needs to match the order of first occurrence in the type) is chosen. If it is a type that is neither the current instance type nor a polymorphic type, we need to look up the instance in a local map. Since currently only one set function is generated at once, the local map is sufficient because all instances that we generate based on the type comparison are necessary. When multiple set functions are generated at once, duplicate instances could appear and a global map to look up instances would be more efficient.
+
+\begin{minted}{Haskell}
+toValST_List_STList :: (t0 -> ST t1) -> [t0] -> STList t1
+toValST_List_STList v20 [] = STNil
+toValST_List_STList v21 (v22 : v23) =
+  STCons (v21 v22) (toST_List_STList v21 v23)
+
+fromValST_List_STList :: (t0 -> t1) -> STList t0 -> [t1]
+fromValST_List_STList v24 STNil = []
+fromValST_List_STList v25 (STCons (Val v26) (Val v27)) =
+  v25 v26 : fromValST_List_STList v25 v27
+\end{minted}
+
+The remaining \cinline{toST} and \cinline{fromSt} functions are generated very similarly to the other instances and differ only between basic and complex types in the number of instance function arguments that need to be supplied to the respective \cinline{toValST} or \cinline{fromValST} function.
+
+\begin{minted}{Haskell}
+toST_Int_Int :: Int -> ST Int
+toST_Int_Int = Uneval . toValST_Int_Int
+
+fromST_Int_Int :: ST Int -> Values Int
+fromST_Int_Int = map fromValST_Int_Int . stValues
+
+toST_List_STList :: (t0 -> ST t1) -> [t0] -> ST (STList t1)
+toST_List_STList v28 = Uneval . toValST_List_STList v28
+
+fromST_List_STList :: NF t0 => (t0 -> t1) -> ST (STList t0) -> Values [t1]
+fromST_List_STList v29 = map (fromValST_List_STList v29) . stValues
+\end{minted}
+
+\subsection{Synthesizing set functions}
+Now that we have created all parts of the puzzle, the only remaining step is to piece them together. The type of the set function is created by wrapping the return type of the original function in a \cinline{Values} constructor. Then, the type is converted to an expression by looking up the correct \cinline{fromST} and \cinline{toST} instances. Since up to now, polymorphic data type instances have preserved polymorphism, we now need to add concrete instance functions based on the set function's type. Polymorphic set functions are not supported. More on the limitations of this implementation can be found in the next chapter.
+\begin{minted}{Haskell}
+anyOfS :: [Int] -> Values Int
+anyOfS v30 =
+  fromST_Int_Int (anyOfP initSupply (toST_List_STList toST_Int_Int v30))
+\end{minted}
+
+\chapter{Limitations, Conclusion and Outlook}
+Due to the prototype nature of the tool, some limitations exist. The current implementation does not support:
+\begin{itemize}
+    \item Nested set functions
+    \item Polymorphic set functions
+    \item Higher-order functions
+    \item External functions
+    \item Record types and type synonyms
+\end{itemize}
+Nested set functions would require the addition of depth levels to plural functions to distinguish failures as well as the ability to generate plural functions of set functions. While polymorphic set functions could have a theoretical application, they are rare in practice. In contrast, higher-order functions, external functions and type synonyms definitely need to be implemented to have a viable alternative to the current set function implementation.
+
+
 
 
 % Literatur
