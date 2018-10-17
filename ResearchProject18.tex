@@ -23,11 +23,9 @@
 
 % Minted
 \usepackage{minted}
-\usemintedstyle[haskell]{trac}
-\newminted{haskell}{fontsize=\small}
-\newminted{coq}{fontsize=\small}
+\usemintedstyle[Haskell]{friendly}
+\newminted{Haskell}{fontsize=\small}
 \setmintedinline{style = bw}
-\DeclareUnicodeCharacter{222A}{$\cup$}
 
 \makeatletter
 \AtBeginEnvironment{minted}{\dontdofcolorbox}
@@ -44,7 +42,7 @@
 
 % Eine kleine Hilfe für offene Lücken
 \newcommand{\todo}[1]{\marginpar{\textbf{TODO:} #1}}
-\newcommand{\cinline}[1]{\mintinline{haskell}{#1}}
+\newcommand{\cinline}[1]{\mintinline{Haskell}{#1}}
 
 \begin{document}
 
@@ -53,7 +51,7 @@
 \begin{titlepage}
 	\vspace*{3cm}
 	\centering
-	{\huge\bfseries Synthesizing Set Functions: Implementation \par}
+	{\huge\bfseries Synthesizing Set Functions: \\ A Prototype Implementation \par}
 	\vspace{1cm}
 	\textbf{Research Project Report} \par 
 	\vspace{6cm}
@@ -102,7 +100,7 @@ Prüfungsbehörde vorgelegt und auch noch nicht veröffentlicht.
 When presented with a choice, we usually get to experience only one outcome of it. Whether the decision is about what to eat for lunch, where to live or what career to pursue, we have to decide and can only wonder what would have happened if we picked differently. Would not it be nice if we could collect all outcomes of a decision and pick the most appealing one?
 
 While it is hard to imagine that we someday might be able to pick our lunch based on the recommendation of alternate reality versions of ourselves, the concept is far more tangible in the context of functional logic programming languages. A nondeterministic calculation like \cinline{0?1} can yield several values, \cinline{0} and \cinline{1} in this case. Maybe we would like to count the results or check if a specific outcome is possible? A nondeterministic expression in Curry does not "look" different than a deterministic one, at least in regard to their types. Based on this, checking if \cinline{0?1} can be evaluated to a certain result yields a naive implementation.
-\begin{minted}{haskell}
+\begin{minted}{Haskell}
 isOne :: Int -> Bool
 isOne x = x == 1
 
@@ -111,12 +109,12 @@ check = isOne (0?1)
 \end{minted}
 The intention behind this code is that we would like to know if a value of \cinline{0?1} equals one. Unfortunately this is not what the program does. Instead, the function \cinline{check} becomes nondeterministic too and yields \cinline{True} and \cinline{False} because \cinline{isOne} is evaluated for every possible value of \cinline{0?1}. To express what we originally intended, we need to encapsulate the nondeterminism that might occur in the argument of \cinline{isOne}. This is the purpose of \textit{set functions}. A set function returns all values of a nondeterministic expression as a set that can be manipulated like a normal data structure.
 
-\begin{minted}{haskell}
+\begin{minted}{Haskell}
 evalOne :: Int -> Bool
 evalOne x = valueOf 1 (set0 x)
 \end{minted}
 
-Curry systems like KiCS2 or PAKCS implement set functions in the respective target language, that is, tree-like structures in Haskell and \cinline{findall} in Prolog. This entails slight differences when it comes to handling failures and nonterminating evaluations. Ideally, set functions would be implemented on a higher level, that is, directly in Curry. A recent publication by \citet{synsf} tackles this problem and presents a technique to synthesize the set function $f_S$ of a given $f$. Based on this, the process of building a working prototype is documented in this report. We begin with the general approach and a rough overview of the development process followed by a more detailed look at the implementation and it's limitations, concluded by a final chapter about the results and future improvements.
+Curry systems like KiCS2 or PAKCS implement set functions in the respective target language, that is, tree-like structures in Haskell and \cinline{findall} in Prolog. This entails slight differences when it comes to handling failures and nonterminating evaluations. Ideally, set functions would be implemented on a higher level, that is, directly in Curry. A recent publication by \citet{synsf} tackles this problem and presents a technique to synthesize the set function $f_S$ of a given $f$. Based on this, the process of building a working prototype is documented in this report. We begin with the general approach and a rough overview of the development process, followed by a more detailed look at the design choices and the implementation. The report ist concluded by a final chapter about the limitations, results and future improvements.
 \chapter{Approach}
 The research project is divided into two major parts: Familiarizing with the general topic of set functions by means of a prototype version of "KiCS2.5" and the implementation of a prototype based on Synthesizing Set Functions.
 \section{Time line}
@@ -127,19 +125,19 @@ The project lasted from April to October 2018. Below is a short overview of what
 	\item May started with a discussion about an issue\footnote{https://git.ps.informatik.uni-kiel.de/curry/kics2/issues/15} of KiCS2's set function implementation. The idea of finding and fixing this problem was abandoned due to the complexity of the existing implementation. Instead, working on a minimal implemtation\footnote{https://git.informatik.uni-kiel.de/fte/proto\_kics} of KiCS2 seemed like a good way to gain a deeper understanding of set functions. The addition of set functions was based upon the implementation presented by \citet{Brassel2010ImplementingFL}.
 	\item June was the first month with some code output\footnote{https://git.informatik.uni-kiel.de/stu114713/proto\_kics/}. Along the way of adapting Braßel's implementation, functions to pull up choices to the root of an expression and a normal form transformation were needed. To test the new implementation, the existing examples\footnote{https://git.ps.informatik.uni-kiel.de/curry/kics2/blob/master/testsuite/LibraryTests/testSetFunctions.curry} would have been a good choice but it became apparent that due to the minimalism of the prototype, this would have been a difficult task for the more complex examples. Mid-month the exam preparation period started and the project was paused.
     \item In July nothing noteworthy -- in regard to the project -- happened.
-    \item August marked the end of the first part of the project. The KiCS2.5 set function implementation worked for a simple example but had problems with the duplication of cover information which is used in Braßel's implementation to distinguish different levels of encapsulation. Since the final version of Synthesizing Set Functions was available, the second half of the project began. The goal was to implement a tool that transforms a function within a FlatCurry program into an AbstractCurry program that contains the synthesized set function based on the top-level sharing library. The month ended with the implementation of the plural function transformation.
-    \item September yielded the implementation of totalizing partial functions and the generation of normal form instances. Due to a misunderstanding, the instance generation generated FlatCurry expressions which unnecessarily complicated the code due to the lack of type classes. Ultimately, the experience proved to be helpful in the implementation of  multi-parameter type class instances. To make the code more readable, the transformation was adapted to run within the \cinline{StateT} monad. It was discovered that KiCS2 cannot handle the monad instance required to define \cinline{StateT}.  Therefore, PAKCS was used for the remainder of the project.
-    \item October represented the last part of the project. After implementing the multi-parameter class instances for \cinline{toValST} and \cinline{FromValST} as well as \cinline{toST} and \cinline{FromST}, some issues regarding generated function names and the selection of appropriate instance arguments for polymorphic instances were fixed. Finally, all parts of the puzzle were pieced together and resulted in the first prototype of the set function synthesizer. As a last step, sharing was implemented. 
+    \item August marked the end of the first part of the project. The KiCS2.5 set function implementation worked for a simple example but had problems with the duplication of cover information which is used in Braßel's implementation to distinguish different levels of encapsulation. Since the final version of Synthesizing Set Functions was published, the second half of the project began. The goal was to implement a tool that transforms a function within a FlatCurry program into an AbstractCurry program that contains the synthesized set function based on the top-level sharing library. The month ended with the implementation of the plural function transformation.
+    \item September yielded the implementation of totalizing partial functions and the generation of normal form instances. Due to a misunderstanding, the instance generation generated FlatCurry expressions, which unnecessarily complicated the code due to the lack of type classes. Ultimately, the experience proved to be helpful in the implementation of  multi-parameter type class instances. To make the code more readable, the transformation was adapted to run within the \cinline{StateT} monad. It was discovered that KiCS2 cannot handle the monad instance required to define \cinline{StateT}.  Therefore, PAKCS was used for the remainder of the project.
+    \item October represented the last part of the project. After implementing the multi-parameter class instances for \cinline{toValST} and \cinline{FromValST} as well as \cinline{toST} and \cinline{FromST}, some issues regarding generated function names and the selection of appropriate instance arguments for polymorphic instances were fixed. Finally, all parts of the puzzle were pieced together and resulted in the first prototype of the set function synthesizer. As a last step, call-time choice was implemented. 
 \end{itemize}
-In the next chapter, we explore the design decisions and implementation of the tool.
+The first part of the project was meant as preparation for the second part. Therefore, we will not look into the details of the KiCS2.5 implementation and focus on synthesizing set functions. In the next chapter, we explore the design decisions and implementation of the tool.
 \chapter{Implementation}
 The set function synthesizing tool is supplied the name of the module and function name that the set function should be synthesized for. As a result, the necessary plural functions, instances and the set function are returned as pretty-printed AbstractCurry code. Internally, the source code file is transformed into a FlatCurry program and then further processed. In conclusion, the transformation's input is FlatCurry and its output is AbstractCurry code. This low-to-high approach, in terms of language complexity, has two advantages. One, FlatCurry has a multitude of useful program transformation libraries and functions have only one rule by design, which is an assumption made in the paper, too. Two, AbstractCurry supports type classes, which saves us some of the effort to generate type class instances manually. Unfortunately, multi-parameter type classes are not yet implemented in Curry, so some manual instance handling is inevitable.
 
 Over the course of the development process it became apparent that a state is necessary to create unique variable names and to keep the program readable.
 
 \section{State}
-The state has a FlatCurry and AbstractCurry program. The former is the initial program while the latter holds the generated code. There are five different maps: two type maps that map type names to generated ST type names and vice versa, as well as one map that maps constructor names to constructors of the ST type and a function map that maps function names to their plural representations. The variable \cinline{supplyVarMap} is used in the implementation of sharing and stores variables that need to be assigned an ID or IDSupply value. More on that in \todo{link}. The last elements of the state are a list of type pairs, more precisely the types of a function and its plural function, and a variable that represents the biggest variable index used so far.
-\begin{minted}{haskell}
+The state has a FlatCurry and AbstractCurry program. The former is the initial program while the latter holds the generated code. There are five different maps: two type maps that map type names to generated ST type names and vice versa, as well as one map that maps constructor names to constructors of the ST type and a function map that maps function names to their plural representations. The variable \cinline{supplyVarMap} is used in the implementation of call-time choice and stores variables that need to be assigned an \cinline{ID} or \cinline{IDSupply} value. More on that can be found in \autoref{plural}. The last elements of the state are a list of type pairs, more precisely the types of a function and its plural function, and a variable that represents the biggest variable index used so far.
+\begin{minted}{Haskell}
 data State = State
 {
     currentProg  :: Prog,
@@ -194,16 +192,17 @@ anyOf xs = case xs of
 \end{minted}
 
 \subsection{Lifting case expressions}
-The transformation requires uniform functions, so nested case expressions can be problematic. Fortunately, the module \cinline{LiftCases} already implements lifting nested case expressions. Unfortunately, the module only works with type-annotated FlatCurry because the lifted function's type is generated from the type annotations. To annotate a FlatCurry program with types, the function \cinline{inferProg} from the module \cinline{FlatCurry.Annotated.TypeInference} is useful. Considering that the type inference does not work well with type classes and that the inferred information is discarded in the next step, it is desirable to implement this step without the usage of annotated FlatCurry.
+The transformation requires uniform functions, so nested case expressions can be problematic. Fortunately, the module \cinline{LiftCases} already implements lifting nested case expressions, that is, creating new function declarations for nested case expressions. Unfortunately, the module only works with type-annotated FlatCurry because the lifted function's type is generated from the type annotations. To annotate a FlatCurry program with types, the function \cinline{inferProg} from the module \cinline{FlatCurry.Annotated.TypeInference} is useful. Considering that the type inference does not work well with type classes and that the inferred information is discarded in the next step, it is desirable to implement this step without the usage of annotated FlatCurry.
 
 \subsection{Plural function transformation}
-The plural function transformation unifies multiple steps. In general, a FlatCurry function declaration is transformed into an AbstractCurry function. To do this, the function name of the transformation target is looked up. A new name for the plural function is generated and an entry in the function map is added to replace recursive calls to the function. Then, the function's type is transformed into an ST type. This is done by adding an \cinline{ST} constructor to every top-level argument and then transforming the argument. The interesting part happens when a type constructor is found: If the type lookup yields an ST type, it replaces the previous type. If this is not the case, the type declaration is looked up in the program and the type declaration is transformed.
+\label{plural}
+The plural function transformation unifies multiple steps. In general, a FlatCurry function declaration is transformed into an AbstractCurry plural function. To do this, the function name of the transformation target is looked up. A new name for the plural function is generated and an entry in the function map is added to replace recursive calls to the function. Then, the function's type is transformed into an ST type. This is done by adding an \cinline{ST} constructor to every top-level argument and then transforming the argument. The interesting part happens when a type constructor is found: If the type lookup yields an ST type, it replaces the previous type. If this is not the case, the type declaration is looked up in the program and the type declaration is transformed.
 
 The type transformation distinguishes two cases. Basic types like \cinline{Int}, where all constructors are nullary, and complex types. The basic case is simply dealt with because no transformation is necessary, only an entry like \cinline{Int} $\longleftrightarrow$ \cinline{Int} is added to the type maps. Complex types get a new ST name that is added to the type maps. Then, the constructors are transformed by adding their ST names to the constructor map and transforming their types.
 
-Finally, the rule of the function needs to be transformed. This is where we need think about sharing for the first time\footnote{The transformed type has an additional \cinline{IDSupply} argument that was not mentioned above, so technically this is not correct.}. The plural function has an \cinline{IDSupply} argument that we need to distribute between all occurrences of plural function calls and \cinline{Choice} constructors that require an \cinline{ID}. The approach chosen here is to insert a variable wherever an \cinline{IDSupply} or \cinline{ID} is needed, combined with an entry in the \cinline{supplyVarMap}. The map differentiates both kinds of variables and is used when the function's expression has been transformed. Then, the list of variables in the map are transformed into a list of local declarations where, beginning with the function's \cinline{IDSupply} argument, the supply is split into two new supplies where one part is assigned to a variable and the other part is used to create new supplies.
+Finally, the rule of the function needs to be transformed. This is where we need to think about call-time choice for the first time\footnote{The transformed type has an additional \cinline{IDSupply} argument that was not mentioned above.}. The plural function has an \cinline{IDSupply} argument that we need to distribute between all occurrences of plural function calls and \cinline{Choice} constructors that require an \cinline{ID}. The approach chosen here is to insert a variable wherever an \cinline{IDSupply} or \cinline{ID} is needed, combined with an entry in the \cinline{supplyVarMap}. The map differentiates both kinds of variables and is used when the function's expression has been transformed. Then, the list of variables in the map are transformed into a list of local declarations where, beginning with the function's \cinline{IDSupply} argument, the supply is split into two new supplies where one part is assigned to a variable and the other part is used to create new supplies.
 
-The expression transformation works like described in the paper. Literals are wrapped in a \cinline{Val} constructor and variables remain untouched. The \cinline{failed} constructor is replaced with the ST constructor \cinline{Fail}. Other constructors are replaced with the ST type equivalent if necessary. When a function is found, its name is looked up in the respective map and, if not already done, the function's plural function is generated. The other expressions are mostly recursive calls of the expression transformation and the adaptation of the differences between FlatCurry and AbstractCurry.
+The expression transformation works like described in the paper. Literals are wrapped in a \cinline{Val} constructor and variables remain untouched. The \cinline{failed} constructor is replaced with the ST constructor \cinline{Fail}. Other constructors are replaced with the ST type equivalent if necessary. When a function is found, its name is looked up in the respective map and, if not already done, the function's plural function is generated. The transformation of the other expressions consists mostly of recursive calls of the expression transformation and the adaptation of differences between FlatCurry and AbstractCurry.
 
 \begin{minted}{Haskell}
 anyOfP :: IDSupply -> ST (STList Int) -> ST Int
@@ -226,7 +225,7 @@ data STList t0 = STNil | STCons (ST t0) (ST (STList t0))
 \end{minted}
 
 \subsection{Normal form instances}
-The generation of normal form instances is centered around the function \cinline{nfSTCase} which yields an expression and takes a constructor name, a list of variables that occur in the constructor's pattern and a list of variables that have been bound by case variable patterns. The top-level case expression of \cinline{nf} distinguishes the constructors of the ST type. If the constructor does not have arguments, the result is the same constructor wrapped in \cinline{Val}. Otherwise \cinline{nfSTCase} is used to create the nested case expressions. The recursive call of \cinline{nf} is applied to the first variable in the constructor variable list and the result is distinguished between \cinline{Choice}, \cinline{Fail} and the other constructors.
+The generation of normal form instances is centered around the function \cinline{nfSTCase}, which yields an expression and takes a constructor name, a list of variables that occur in the constructor's pattern and a list of variables that have been bound by case variable patterns. The top-level case expression of \cinline{nf} distinguishes the constructors of the ST type. If the constructor does not have arguments, the result is the same constructor wrapped in \cinline{Val}. Otherwise \cinline{nfSTCase} is used to create the nested case expressions. The recursive call of \cinline{nf} is applied to the first variable in the constructor variable list and the result is distinguished between \cinline{Choice}, \cinline{Fail} and the other constructors.
 The last case is the most interesting one because the result is matched by a variable that the next call of \cinline{nfSTCase} receives. The constructor variable that was used in the \cinline{nf} expression before is removed from the list and the next nested case expression is created. This procedure is done until the list of constructor variables is empty. Then, the constructor is applied to the list of bound variables that were collected in the calls to \cinline{nfSTCase} and wrapped with a \cinline{Val}.
 \begin{minted}{Haskell}
 instance NF t0 => NF (STList t0) where
@@ -256,7 +255,7 @@ toValST_Int_Int = id
 fromValST_Int_Int :: Int -> Int
 fromValST_Int_Int = id
 \end{minted}
-Complex instances like \cinline{([], STList)} are generated by iterating over the matching constructor pairs of the types. Since multi-parameter type classes are not supported in Curry yet, type variables result in additional instance function arguments. The rules of the instances are generated according to the pattern shown in the paper. The only difference is that whenever a recursive instance call is necessary, we need to inspect the pattern variable of the the constructor for its type. If it is the same type we are currently generation the instance for, a simple recursive call suffices. If it is polymorphic, the appropriate instance function argument (the order of arguments needs to match the order of first occurrence in the type) is chosen. If it is a type that is neither the current instance type nor a polymorphic type, we need to look up the instance in a local map. Since currently only one set function is generated at once, the local map is sufficient because all instances that we generate based on the type comparison are necessary. When multiple set functions are generated at once, duplicate instances could appear and a global map to look up instances would be more efficient.
+Complex instances like \cinline{([], STList)} are generated by iterating over the matching constructor pairs of the types. Since multi-parameter type classes are not supported in Curry yet, type variables result in additional instance function arguments. The rules of the instances are generated according to the pattern shown in the paper. The only difference is that whenever a recursive instance call is necessary, we need to inspect the pattern variable of the constructor for its type. If it is the same type we are currently generation the instance for, a simple recursive call suffices. If it is polymorphic, the appropriate instance function argument (the order of arguments needs to match the order of first occurrence in the type) is chosen. If it is a type that is neither the current instance type nor a polymorphic type, we need to look up the instance in a local map. Since currently only one set function is generated at once, the local map is sufficient because all instances that we generate based on the type comparison are required. When multiple set functions are generated at once, duplicate instances could appear and a global map to look up instances would be more efficient.
 
 \begin{minted}{Haskell}
 toValST_List_STList :: (t0 -> ST t1) -> [t0] -> STList t1
@@ -287,7 +286,8 @@ fromST_List_STList v29 = map (fromValST_List_STList v29) . stValues
 \end{minted}
 
 \subsection{Synthesizing set functions}
-Now that we have created all parts of the puzzle, the only remaining step is to piece them together. The type of the set function is created by wrapping the return type of the original function in a \cinline{Values} constructor. Then, the type is converted to an expression by looking up the correct \cinline{fromST} and \cinline{toST} instances. Since up to now, polymorphic data type instances have preserved polymorphism, we now need to add concrete instance functions based on the set function's type. Polymorphic set functions are not supported. More on the limitations of this implementation can be found in the next chapter.
+Now that we have created all parts of the puzzle, the only remaining step is to piece them together. The type of the set function is created by wrapping the return type of the original function in a \cinline{Values} constructor. Then, the type is converted to an expression by looking up the correct \cinline{fromST} and \cinline{toST} instances. Since up to now, polymorphic data type instances have preserved polymorphism, we need to add concrete instance functions based on the set function's type. Polymorphic set functions are not supported. More on the limitations of this implementation can be found in the next chapter.
+
 \begin{minted}{Haskell}
 anyOfS :: [Int] -> Values Int
 anyOfS v30 =
@@ -301,10 +301,12 @@ Due to the prototype nature of the tool, some limitations exist. The current imp
     \item Polymorphic set functions
     \item Higher-order functions
     \item External functions
+    \item Free variables
     \item Record types and type synonyms
 \end{itemize}
 Nested set functions would require the addition of depth levels to plural functions to distinguish failures as well as the ability to generate plural functions of set functions. While polymorphic set functions could have a theoretical application, they are rare in practice. In contrast, higher-order functions, external functions and type synonyms definitely need to be implemented to have a viable alternative to the current set function implementation.
 
+In conclusion, the prototype shows that the approach presented in the paper can be implemented in a limited setting. When the tool reaches a sufficient degree of language construct coverage and the reliability has been thoroughly tested, integrating it into the Curry preprocessor would require a way to identify set functions in the source code. While the transformation should work for functions of arbitrary arity, it might be useful to keep an adapted version of the current set function interface to allow, for example, better type errors.
 
 
 
@@ -313,4 +315,17 @@ Nested set functions would require the addition of depth levels to plural functi
 \bibliography{ResearchProject18}
 \appendix
 \chapter{Repository}
+The project repository can be found at the following link.
+\\\\
+\url{https://git.ps.informatik.uni-kiel.de/stu114713/2018-setfunctions/tree/master/CODE/setfunctions}
+\\\\
+Installing the tool requires a recent Curry installation with the Curry Package Manager. Due to a bug in KiCS2, only PAKCS is supported at the moment. Executing \cinline{cypm install} in the project directory installs the executable \cinline{synsf}. To use the tool, the name of a Curry module and a function name need to be supplied, for example, \cinline{synsf Examples -f anyOf} for the following program.
+\begin{minted}{Haskell}
+module Examples where
+
+anyOf :: [Int] -> Int
+anyOf (x:xs) = x ? anyOf xs
+\end{minted}
+The output contains all necessary instances and the generated plural function as well as the synthesized set function. Adding this code to the original file and importing the appropriate ST module (\cinline{TopLevelSharing} for the current version of the tool) allows testing the synthesized set function. 
+
 \end{document}
