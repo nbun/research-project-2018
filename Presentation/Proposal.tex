@@ -85,7 +85,7 @@ notP = applyST $ \x ->
 \begin{minted}{Haskell}
 data STList a = Nil | Cons (ST a) (ST (STList a))
 \end{minted}
-\item Normalform ("Hochziehen" von Nichtdeterminismus)
+\item Normalform ("Hochziehen"{} von Nichtdeterminismus)
 \begin{minted}{Haskell}
 class NF a where
   nf :: a -> ST a
@@ -100,6 +100,8 @@ class ConvertST a b where
 \end{frame}
 
 \begin{frame}{Implementierung}
+FlatCurry Funktion $\Rightarrow$ AbstractCurry Programm
+\vfill
 Transformationsphasen
 \begin{enumerate}
 \item Aufsammeln der verwendeten Definitionen
