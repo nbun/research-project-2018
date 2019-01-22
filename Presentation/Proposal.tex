@@ -1,0 +1,136 @@
+% !TEX TS-program = xelatex
+\documentclass{beamer}
+\usepackage{ulem}
+\usepackage{proof}
+\usepackage{bussproofs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{minted}
+\usepackage{subcaption}
+\usepackage{natbib}
+\usepackage{graphicx}
+\usepackage{scrextend}
+\usepackage{appendixnumberbeamer}
+
+\usemintedstyle[Haskell]{trac, fontsize=\small}
+\usemintedstyle[Coq]{fontsize=\footnotesize}
+\usemintedstyle[Text]{fontsize=\footnotesize}
+\newcommand{\haskellinline}[1]{\mintinline{Haskell}{#1}}
+\newcommand{\coqinline}[1]{\mintinline{Coq}{#1}}
+
+\usetheme[progressbar=foot]{metropolis}
+
+\usepackage[german]{babel}
+\usepackage[utf8]{inputenc}
+
+%\setbeamersize{text margin left=1.5em,text margin right=1.5em}
+
+\title{Synthesizing Set Functions: Eine prototypische Implementierung}
+\subject{Synthesizing Set Functions: Eine prototypische Implementierung}
+\date{23. Januar 2019}
+\author{Niels Bunkenburg}
+\institute{ 
+	Arbeitsgruppe für Programmiersprachen und Übersetzerkonstruktion \par
+	Institut für Informatik \par
+	Christian-Albrechts-Universität zu Kiel}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}[fragile]{Aufgabe}
+\begin{itemize}
+\item \alert{Set Functions} im KiCS2 verhalten sich anders als im PAKCS
+\vspace{.5em}
+\item Set Functions kapseln Nichtdeterminismus einer Funktion
+\begin{minted}[escapeinside=<>]{Haskell}
+coin = 0 ? 1 <$\Rightarrow$> coin<$_S$> = {0,1}
+\end{minted}
+\vspace{.5em}
+\item Nichtdeterminismus in Argumenten wird nicht gekapselt
+\begin{minted}[escapeinside=<>]{Haskell}
+double x = x + x <$\Rightarrow$> double<$_S$> coin = {0}, {2}
+\end{minted}
+\vspace{.5em}
+\item Neuer Ansatz: Synthesizing Set Functions \citep{synsf}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Idee: Plural Functions}
+\begin{itemize}
+\item Set Functions bestehen aus \alert{Plural Functions}
+\item Plural Function für $f :: a \rightarrow b$ ist  $f_P :: \{a\} \rightarrow 
+\{b\}$
+\item Implementierung von $\{.\}$ als Suchbaum
+\begin{minted}{Haskell}
+data ST a = Val a | Fail | Choice (ST a) (ST a)
+\end{minted}
+\item Anpassung der Ausdrücke
+\begin{minted}{Haskell}
+applyST :: (a -> ST b) -> ST a -> ST b
+
+notP :: ST Bool -> ST Bool
+notP = applyST $ \x ->
+                 case x of False -> Val True
+                           True  -> Val False
+\end{minted}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Datentypen}
+\begin{itemize}
+\item Komponenten in Datentypen werden zu Suchbäumen
+\begin{minted}{Haskell}
+data STList a = Nil | Cons (ST a) (ST (STList a))
+\end{minted}
+\item Normalform ("Hochziehen" von Nichtdeterminismus)
+\begin{minted}{Haskell}
+class NF a where
+  nf :: a -> ST a
+\end{minted}
+\item Konvertierung zwischen ursprünglichem und ST-Datentyp
+\begin{minted}{Haskell}
+class ConvertST a b where
+  toValST :: a -> b
+  fromValST :: b -> a
+\end{minted}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Implementierung}
+Transformationsphasen
+\begin{enumerate}
+\item Aufsammeln der verwendeten Definitionen
+\item Lifting von verschachtelten Case-Ausdrücken
+\item Plural Function Transformation (Funktionstyp und Regeln) $\Rightarrow$ 
+Vorkommende Datentypen werden transformiert
+\item Normalform Instanzen
+\item ConvertST Instanzen
+\item Zusammenbauen der Set Function
+\end{enumerate}
+\end{frame}
+
+\begin{frame}{Ergebnisse}
+\begin{itemize}
+\item Implementierung der Transformation grundsätzlich möglich
+\item Einschränkungen
+\begin{itemize}
+\item Verschachtelte Set Functions
+\item Polymorphie/Higher-Order/Typsynonyme
+\item Externe Funktionen
+\item Freie Variablen
+\end{itemize}
+\item Effizienz und Korrektheit?
+\item Integration in Präprozessor?
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\bibliographystyle{plainnat}
+\bibliography{ResearchProject18}
+\end{frame}
+\end{document}
+
+
